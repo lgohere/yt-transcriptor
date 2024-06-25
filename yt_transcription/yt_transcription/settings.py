@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -15,7 +14,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'home',
+    'home',  # Seu app
 ]
 
 MIDDLEWARE = [
@@ -80,7 +79,7 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = [os.path.join(BASE_DIR, 'home/static')]
+STATICFILES_DIRS = [os.path.join(BASE_DIR, 'yt_transcription/home/static')]  # Corrigido o caminho
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
