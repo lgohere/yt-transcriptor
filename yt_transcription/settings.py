@@ -9,15 +9,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY', 'Mkevin90190')
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = ['transcriptions-946edda3d774.herokuapp.com', 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['transcriptions-946edda3d774.herokuapp.com', 'localhost', '127.0.0.1', 'texts.com.br']
 
-CSRF_TRUSTED_ORIGINS = ['https://transcriptions-946edda3d774.herokuapp.com']
+CSRF_TRUSTED_ORIGINS = ['https://transcriptions-946edda3d774.herokuapp.com', 'https://texts.com.br']
 
 # Application definition
 INSTALLED_APPS = [
