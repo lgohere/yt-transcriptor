@@ -14,35 +14,51 @@ import logging
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptAvailable
 
-
 # Configurar logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 def get_youtube_transcript_and_title(video_url):
     try:
-        # Extrair o ID do vídeo da URL
-        video_id = video_url.split("v=")[1] if "v=" in video_url else video_url.split("/")[-1]
-        
-        # Obter a transcrição
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-        
-        # Juntar todos os segmentos da transcrição
-        full_transcript = ' '.join([entry['text'] for entry in transcript])
-        
-        # Obter o título (você ainda precisará fazer uma requisição para obter o título)
         response = requests.get(video_url)
+        response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
+
+        # Extrair o título
         title_element = soup.find("meta", property="og:title")
         title = title_element["content"] if title_element else "sem_titulo"
-        
+
+        # Encontrar o script que contém os dados da transcrição
+        script = soup.find("script", string=re.compile("ytInitialPlayerResponse"))
+        if not script:
+            logger.warning("Não foi possível encontrar o script de dados iniciais.")
+            return None, title
+
+        # Extrair e analisar os dados JSON
+        json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string).group(1)
+        data = json.loads(json_text)
+
+        # Extrair a transcrição
+        captions = data.get('captions', {}).get('playerCaptionsTracklistRenderer', {}).get('captionTracks', [])
+        if not captions:
+            logger.warning("Nenhuma transcrição disponível para este vídeo.")
+            return None, title
+
+        # Pegar a primeira transcrição disponível (geralmente em inglês)
+        transcript_url = captions[0]['baseUrl']
+        transcript_response = requests.get(transcript_url)
+        transcript_soup = BeautifulSoup(transcript_response.content, 'html.parser')
+
+        # Extrair o texto da transcrição
+        transcript_segments = transcript_soup.find_all('text')
+        full_transcript = ' '.join([unescape(segment.get_text()) for segment in transcript_segments])
+
+        logger.info(f"Transcrição obtida com sucesso para o vídeo: {title}")
         return full_transcript, title
-    except (TranscriptsDisabled, NoTranscriptAvailable) as e:
-        logger.warning(f"Nenhuma transcrição disponível para este vídeo: {str(e)}")
-        return None, None
+
     except Exception as e:
         logger.error(f"Erro ao extrair a transcrição: {e}", exc_info=True)
-        return None, None
+        return None, None 
     
 def sanitize_filename(title):
     valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
