@@ -12,7 +12,7 @@ from html import unescape
 from django.views.decorators.csrf import csrf_exempt
 import logging
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.exceptions import TranscriptsDisabled, NoTranscriptAvailable
+from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptAvailable
 
 
 # Configurar logging
