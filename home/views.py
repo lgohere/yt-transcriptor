@@ -11,58 +11,35 @@ from .forms import YouTubeURLForm
 from html import unescape
 from django.views.decorators.csrf import csrf_exempt
 import logging
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.exceptions import TranscriptsDisabled, NoTranscriptAvailable
+
 
 # Configurar logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-
 def get_youtube_transcript_and_title(video_url):
     try:
-        logger.debug(f"Tentando obter transcrição para URL: {video_url}")
-        response = requests.get(video_url)
-        if response.status_code != 200:
-            print(f"Falha ao acessar a página do vídeo. Status code: {response.status_code}")
-            return None, None
+        # Extrair o ID do vídeo da URL
+        video_id = video_url.split("v=")[1] if "v=" in video_url else video_url.split("/")[-1]
         
+        # Obter a transcrição
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        
+        # Juntar todos os segmentos da transcrição
+        full_transcript = ' '.join([entry['text'] for entry in transcript])
+        
+        # Obter o título (você ainda precisará fazer uma requisição para obter o título)
+        response = requests.get(video_url)
         soup = BeautifulSoup(response.content, 'html.parser')
         title_element = soup.find("meta", property="og:title")
         title = title_element["content"] if title_element else "sem_titulo"
-
-        script = soup.find("script", string=re.compile("ytInitialPlayerResponse"))
-        if not script:
-            print("Não foi possível encontrar o script de dados iniciais.")
-            return None, title
-
-        json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string).group(1)
-        data = json.loads(json_text)
-
-        captions = data.get('captions')
-        if not captions:
-            logger.warning("Nenhuma transcrição disponível para este vídeo.")
-            return None, title
-
-        caption_tracks = captions['playerCaptionsTracklistRenderer']['captionTracks']
         
-        # Procurar por legendas em inglês (ou a língua desejada)
-        transcript_url = None
-        for track in caption_tracks:
-            if 'languageCode' in track and track['languageCode'] == 'en':
-                transcript_url = track['baseUrl']
-                break
-        if not transcript_url:
-            transcript_url = caption_tracks[0]['baseUrl']  # Fallback para a primeira transcrição disponível
-
-        transcript_response = requests.get(transcript_url)
-        transcript_soup = BeautifulSoup(transcript_response.content, 'html.parser')
-
-        transcript_segments = transcript_soup.find_all('text')
-        transcript_text = [unescape(segment.get_text()) for segment in transcript_segments]
-        full_transcript = ' '.join(transcript_text)
-
-        logger.info(f"Transcrição obtida com sucesso para o vídeo: {title}")
         return full_transcript, title
-
+    except (TranscriptsDisabled, NoTranscriptAvailable) as e:
+        logger.warning(f"Nenhuma transcrição disponível para este vídeo: {str(e)}")
+        return None, None
     except Exception as e:
         logger.error(f"Erro ao extrair a transcrição: {e}", exc_info=True)
         return None, None
