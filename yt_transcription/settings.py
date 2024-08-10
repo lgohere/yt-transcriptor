@@ -37,8 +37,6 @@ MIDDLEWARE = [
     'whitenoise.middleware.WhiteNoiseMiddleware',
 ]
 
-CSRF_TRUSTED_ORIGINS = ['https://transcriptions.fly.dev']
-
 ROOT_URLCONF = 'yt_transcription.urls'
 
 TEMPLATES = [
@@ -60,7 +58,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'yt_transcription.wsgi.application'
 
 DATABASES = {
-    'default': dj_database_url.config(default=os.environ.get('DATABASE_URL'))
+    'default': dj_database_url.config(default='sqlite:///db.sqlite3')
 }
 
 # Password validation
