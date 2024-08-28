@@ -29,4 +29,5 @@ websocket-client==1.8.0
 whitenoise==6.7.0
 wsproto==1.2.0
 youtube_transcript_api==0.6.2
-python-dotenv==1.0.1requests[socks]
+python-dotenv==1.0.1
+requests[socks]==2.31.0
