@@ -135,16 +135,22 @@
         const addButton = document.getElementById("add-url");
         const removeButton = document.getElementById("remove-url");
         const urlContainer = document.getElementById("url-container");
+        const MAX_URLS = 5; // Limite máximo de URLs
 
         addButton.addEventListener("click", function (event) {
           event.preventDefault();
-          const newField = document.createElement("p");
-          newField.innerHTML = `
-                    <input type="text" name="video_url" class="video-url-input" required pattern="^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.*" title="Invalid URL" />
-                `;
-          urlContainer.appendChild(newField);
-          if (urlContainer.children.length > 1) {
-            removeButton.style.display = "inline-block";
+          if (urlContainer.children.length < MAX_URLS) {
+            const newField = document.createElement("p");
+            newField.innerHTML = `
+              <input type="text" name="video_url" class="video-url-input" required pattern="^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.*" title="Invalid URL" />
+            `;
+            urlContainer.appendChild(newField);
+            if (urlContainer.children.length > 1) {
+              removeButton.style.display = "inline-block";
+            }
+            if (urlContainer.children.length === MAX_URLS) {
+              addButton.style.display = "none";
+            }
           }
         });
 
@@ -156,6 +162,9 @@
           if (urlContainer.children.length <= 1) {
             removeButton.style.display = "none";
           }
+          if (urlContainer.children.length < MAX_URLS) {
+            addButton.style.display = "inline-block";
+          }
         });
 
         const form = document.querySelector("form");
@@ -165,9 +174,11 @@
           inputs.forEach((input) => {
             if (!input.value.trim()) {
               input.setCustomValidity("URL is required");
+              input.classList.add("invalid-url");
               isValid = false;
             } else {
               input.setCustomValidity("");
+              input.classList.remove("invalid-url");
             }
           });
           if (!isValid) {
@@ -195,26 +206,20 @@
               title="Invalid URL"
             />
           </p>
-          {% if error %}
-          <p class="error-message">{{ error }}</p>
-          {% endif %}
         </div>
+        {% if error %}
+          <p class="error-message">{{ error }}</p>
+        {% endif %}
+        {% if success %}
+          <p class="success-message">{{ success }}</p>
+        {% endif %}
         <div class="button-group">
           <button type="submit" class="add-button">Execute</button>
           <button id="add-url" class="add-button">+</button>
-          <button id="remove-url" class="remove-button" style="display: none">
-            -
-          </button>
+          <button id="remove-url" class="remove-button" style="display: none">-</button>
         </div>
       </form>
-      <p
-        style="
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          padding-top: 10pt;
-        "
-      >
+      <p style="display: flex; justify-content: center; align-items: center; padding-top: 10pt;">
         By LuizGouveia
       </p>
     </div>
