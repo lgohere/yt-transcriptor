@@ -13,19 +13,26 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-default-key-for-dev')
 if not SECRET_KEY:
     raise ValueError("No SECRET_KEY set for Django application")
 
-DEBUG = True
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
-SECURE_SSL_REDIRECT = False
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
-SECURE_HSTS_SECONDS = 0
-SECURE_HSTS_INCLUDE_SUBDOMAINS = False
-SECURE_HSTS_PRELOAD = False
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_ENV') != 'production'
 
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'transcriptions-946edda3d774.herokuapp.com', 'texts.com.br']
 
+# Security settings
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+else:
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SECURE_HSTS_SECONDS = 0
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
 
 CSRF_TRUSTED_ORIGINS = ['https://transcriptions-946edda3d774.herokuapp.com', 'https://texts.com.br']
 
@@ -100,8 +107,6 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
-
-SECURE_HSTS_SECONDS = 31536000  # 1 year
 
 X_FRAME_OPTIONS = 'DENY'
 
