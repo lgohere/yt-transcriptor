@@ -1,1 +1,1 @@
-web: gunicorn yt_transcription.wsgi
+web: gunicorn --timeout 60 yt_transcription.wsgi
