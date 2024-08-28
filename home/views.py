@@ -11,7 +11,6 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptAvailable
 from django.utils.text import slugify
 import json
-from requests.exceptions import RequestException
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -28,36 +27,16 @@ def get_video_id(url):
             return match.group(1)
     return None
 
-def get_video_info(video_id):
+def get_video_title(video_id):
     try:
         url = f"https://www.youtube.com/watch?v={video_id}"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
+        response = requests.get(url)
         soup = BeautifulSoup(response.content, 'html.parser')
-        
-        title = "Título não disponível"
-        title_meta = soup.find('meta', property='og:title')
-        if title_meta and 'content' in title_meta.attrs:
-            title = title_meta['content']
-        
-        script = soup.find("script", string=re.compile("ytInitialPlayerResponse"))
-        if script:
-            json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string)
-            if json_text:
-                data = json.loads(json_text.group(1))
-                if 'videoDetails' in data and 'title' in data['videoDetails']:
-                    title = data['videoDetails']['title']
-        
-        return title, soup
-    except RequestException as e:
-        logger.error(f"Erro ao obter informações do vídeo: {e}")
-        return "Título não disponível", None
+        title = soup.find('meta', property='og:title')['content']
+        return title
     except Exception as e:
-        logger.error(f"Erro inesperado ao obter informações do vídeo: {e}")
-        return "Título não disponível", None
+        logger.error(f"Erro ao obter o título do vídeo: {e}")
+        return "Título não disponível"
 
 def get_transcript_from_api(video_id):
     try:
@@ -67,19 +46,19 @@ def get_transcript_from_api(video_id):
         logger.warning(f"Não foi possível obter transcrição via API para {video_id}: {e}")
         return None
 
-def get_transcript_from_html(soup):
-    if not soup:
-        return None
+def get_transcript_from_html(video_id):
     try:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
         script = soup.find("script", string=re.compile("ytInitialPlayerResponse"))
         if not script:
             return None
 
-        json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string)
-        if not json_text:
-            return None
+        json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string).group(1)
+        data = json.loads(json_text)
 
-        data = json.loads(json_text.group(1))
         captions = data.get('captions', {}).get('playerCaptionsTracklistRenderer', {}).get('captionTracks', [])
         if not captions:
             return None
@@ -91,7 +70,7 @@ def get_transcript_from_html(soup):
         transcript_segments = transcript_soup.find_all('text')
         return ' '.join([segment.get_text() for segment in transcript_segments])
     except Exception as e:
-        logger.warning(f"Não foi possível obter transcrição via HTML: {e}")
+        logger.warning(f"Não foi possível obter transcrição via HTML para {video_id}: {e}")
         return None
 
 def get_youtube_transcript_and_title(video_url):
@@ -99,16 +78,16 @@ def get_youtube_transcript_and_title(video_url):
     video_id = get_video_id(video_url)
     if not video_id:
         logger.error(f"ID do vídeo não encontrado para URL: {video_url}")
-        return None, "URL inválida"
+        return None, None
 
-    title, soup = get_video_info(video_id)
+    title = get_video_title(video_id)
     
     transcript = get_transcript_from_api(video_id)
     if transcript:
         logger.info(f"Transcrição obtida via API para o vídeo: {title}")
         return transcript, title
 
-    transcript = get_transcript_from_html(soup)
+    transcript = get_transcript_from_html(video_id)
     if transcript:
         logger.info(f"Transcrição obtida via HTML para o vídeo: {title}")
         return transcript, title
@@ -133,7 +112,7 @@ def transcription_view(request):
                 else:
                     all_transcripts.append((title, "Transcrição não disponível para este vídeo."))
 
-        if all_transcripts:
+        if transcriptions_obtained:
             if len(all_transcripts) == 1:
                 title, transcript = all_transcripts[0]
                 filename = f"{slugify(title)}.txt"
