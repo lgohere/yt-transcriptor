@@ -13,6 +13,7 @@ from django.views.decorators.csrf import csrf_exempt
 import logging
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptAvailable
+from django.utils.text import slugify
 
 # Configurar logging
 logging.basicConfig(level=logging.DEBUG)
@@ -70,14 +71,13 @@ def sanitize_filename(title):
 def transcription_view(request):
     if request.method == 'POST':
         video_urls = request.POST.getlist('video_url')
-        all_transcripts = ""
+        all_transcripts = []
         valid_urls = []
-        transcriptions_obtained = False  # Nova variável para rastrear se alguma transcrição foi obtida
+        transcriptions_obtained = False
+
         valid_url_patterns = [
             re.compile(r'^(https?://)?(www\.)?youtube\.com/'),
             re.compile(r'^(https?://)?(www\.)?youtu\.be/'),
-            re.compile(r'^(https?://)?youtube\.com/'),
-            re.compile(r'^(https?://)?youtu\.be/')
         ]
         
         for video_url in video_urls:
@@ -86,14 +86,22 @@ def transcription_view(request):
                 valid_urls.append(video_url)
                 transcript, title = get_youtube_transcript_and_title(video_url)
                 if transcript:
-                    all_transcripts += f"\n\n{title}\n\n"
-                    all_transcripts += transcript
+                    all_transcripts.append((title, transcript))
                     transcriptions_obtained = True 
 
         if valid_urls and transcriptions_obtained:
-            filename = 'Transcriptions.txt'
-            response = HttpResponse(all_transcripts, content_type='text/plain')
-            response['Content-Disposition'] = f'attachment; filename={filename}'
+            # Se houver apenas uma transcrição, use o título do vídeo
+            if len(all_transcripts) == 1:
+                title, transcript = all_transcripts[0]
+                filename = f"{slugify(title)}.txt"
+                content = f"{title}\n\n{transcript}"
+            else:
+                # Se houver múltiplas transcrições, use um nome genérico
+                filename = 'Multiple_Transcriptions.txt'
+                content = "\n\n".join([f"{title}\n\n{transcript}" for title, transcript in all_transcripts])
+
+            response = HttpResponse(content, content_type='text/plain')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
             return response
         else:
             form = YouTubeURLForm()
@@ -104,3 +112,6 @@ def transcription_view(request):
         form = YouTubeURLForm()
     
     return render(request, 'index.html', {'form': form})
+
+def test_view(request):
+    return HttpResponse("Test view working")
