@@ -16,8 +16,8 @@ if not SECRET_KEY:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_ENV') != 'production'
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]', 'transcriptions-946edda3d774.herokuapp.com', 'texts.com.br']
-
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'yt-transcriptor.onrender.com']
+CSRF_TRUSTED_ORIGINS = ['https://yt-transcriptor.onrender.com']
 # Security settings
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
