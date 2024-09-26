@@ -1,30 +1,52 @@
-# Python
-   *.pyc
-   __pycache__/
-   *.pyo
-   *.pyd
-   .Python
-   env/
-   venv/
-   *.env
-   pip-log.txt
-   pip-delete-this-directory.txt
+# Ambiente virtual
+venv/
 
-   # Django
-   *.log
-   local_settings.py
-   db.sqlite3
-   db.sqlite3-journal
+# Arquivos de configuração
+.env
 
-   # Static files
-   /static/
-   /media/
+# Banco de dados SQLite
+*.sqlite3
+db.sqlite3
 
-   # macOS
-   .DS_Store
+# Arquivos de cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-   # VS Code
-   .vscode/
+# Arquivos de sistema
+.DS_Store
 
-   # PyCharm
-   .idea/
+# Arquivos de log
+*.log
+
+# Arquivos temporários
+*.tmp
+
+# Arquivos de mídia e estáticos (se gerenciados separadamente)
+/media/
+/static/
+
+# Arquivos de configuração local
+local_settings.py
+
+# Arquivos de IDE
+.vscode/
+.idea/
+
+# Arquivos de dependências
+node_modules/
+
+# Arquivos de build
+/build/
+/dist/
+
+# Arquivos de backup
+*.bak
+
+# Arquivos específicos do seu projeto
+.dockerignore
+Procfile
+
+# Outros arquivos que você não quer versionar
+# Adicione aqui quaisquer outros arquivos ou diretórios específicos do seu projeto
