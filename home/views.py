@@ -1,122 +1,247 @@
+# .TXT
+
 import os
 import requests
 from bs4 import BeautifulSoup
 import re
 import json
-import string
-import unicodedata
+import youtube_dl
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from django.shortcuts import render
 from django.http import HttpResponse
 from .forms import YouTubeURLForm
-from html import unescape
 from django.views.decorators.csrf import csrf_exempt
 import logging
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptAvailable
-from django.utils.text import slugify
 
-# Configurar logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def get_youtube_transcript_and_title(video_url):
     try:
-        response = requests.get(video_url, timeout=10)
-        response.raise_for_status()
+        response = requests.get(video_url)
+        if response.status_code != 200:
+            logger.error(f"Falha ao acessar a página do vídeo. Status code: {response.status_code}")
+            return None, None
+        
         soup = BeautifulSoup(response.content, 'html.parser')
-
-        # Extrair o título
         title_element = soup.find("meta", property="og:title")
         title = title_element["content"] if title_element else "sem_titulo"
 
-        # Encontrar o script que contém os dados da transcrição
         script = soup.find("script", string=re.compile("ytInitialPlayerResponse"))
         if not script:
-            logger.warning("Não foi possível encontrar o script de dados iniciais.")
+            logger.error("Não foi possível encontrar o script de dados iniciais.")
             return None, title
 
-        # Extrair e analisar os dados JSON
-        json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string).group(1)
-        data = json.loads(json_text)
+        json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string)
+        if not json_text:
+            logger.error("Não foi possível extrair os dados JSON.")
+            return None, title
 
-        # Extrair a transcrição
-        captions = data.get('captions', {}).get('playerCaptionsTracklistRenderer', {}).get('captionTracks', [])
+        data = json.loads(json_text.group(1))
+        captions = data.get('captions')
         if not captions:
-            logger.warning("Nenhuma transcrição disponível para este vídeo.")
+            logger.error("Nenhuma transcrição disponível para este vídeo.")
             return None, title
 
-        # Pegar a primeira transcrição disponível (geralmente em inglês)
-        transcript_url = captions[0]['baseUrl']
-        transcript_response = requests.get(transcript_url, timeout=10)
+        caption_tracks = captions['playerCaptionsTracklistRenderer']['captionTracks']
+        transcript_url = caption_tracks[0]['baseUrl']
+
+        transcript_response = requests.get(transcript_url)
         transcript_soup = BeautifulSoup(transcript_response.content, 'html.parser')
-
-        # Extrair o texto da transcrição
         transcript_segments = transcript_soup.find_all('text')
-        full_transcript = ' '.join([unescape(segment.get_text()) for segment in transcript_segments])
-
-        logger.info(f"Transcrição obtida com sucesso para o vídeo: {title}")
+        full_transcript = ' '.join([segment.get_text() for segment in transcript_segments])
+        
         return full_transcript, title
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Erro de rede ao extrair a transcrição: {e}", exc_info=True)
-    except json.JSONDecodeError as e:
-        logger.error(f"Erro ao decodificar JSON: {e}", exc_info=True)
     except Exception as e:
-        logger.error(f"Erro inesperado ao extrair a transcrição: {e}", exc_info=True)
-    
-    return None, None 
+        logger.error(f"Erro ao extrair a transcrição: {e}")
+        return None, None
 
-def sanitize_filename(title):
-    valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
-    sanitized_title = ''.join(c for c in title if c in valid_chars or unicodedata.category(c) in ['Ll', 'Lu', 'Lm', 'Lo', 'Lt', 'N'])
-    sanitized_title = sanitized_title.replace(' ', '_')
-    return sanitized_title
+def get_video_urls_from_channel(channel_url):
+    ydl_opts = {
+        'quiet': True,
+        'extract_flat': True,
+        'skip_download': True
+    }
+    
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        result = ydl.extract_info(channel_url, download=False)
+        if 'entries' in result:
+            video_urls = [entry['url'] for entry in result['entries'] if 'url' in entry]
+            video_urls = [f"https://www.youtube.com/watch?v={url.split('v=')[-1]}" if "youtube" not in url else url for url in video_urls]
+            return video_urls
+        else:
+            return []
+
+def fetch_and_append_transcript(url):
+    transcript, title = get_youtube_transcript_and_title(url)
+    if transcript:
+        return f"\n\nTítulo do Vídeo: {title}\n\n{transcript}"
+    else:
+        logger.warning(f"Transcrição não encontrada para o vídeo: {url}")
+        return ""
+
+def is_channel_url(url):
+    return '/channel/' in url or '/@' in url or '/c/' in url or '/user/' in url
 
 @csrf_exempt
 def transcription_view(request):
     if request.method == 'POST':
-        video_urls = request.POST.getlist('video_url')
-        all_transcripts = []
-        valid_urls = []
-        transcriptions_obtained = False
+        urls = request.POST.getlist('video_url')
+        if not urls:
+            return render(request, 'index.html', {'form': YouTubeURLForm(), 'error': 'Nenhuma URL fornecida.'})
 
-        valid_url_patterns = [
-            re.compile(r'^(https?://)?(www\.)?youtube\.com/'),
-            re.compile(r'^(https?://)?(www\.)?youtu\.be/'),
-        ]
-        
-        for video_url in video_urls:
-            video_url = video_url.strip()
-            if video_url and any(pattern.match(video_url) for pattern in valid_url_patterns):
-                valid_urls.append(video_url)
-                transcript, title = get_youtube_transcript_and_title(video_url)
-                if transcript:
-                    all_transcripts.append((title, transcript))
-                    transcriptions_obtained = True 
-                else:
-                    all_transcripts.append((title, "Transcrição não disponível para este vídeo."))
-
-        if valid_urls and transcriptions_obtained:
-            if len(all_transcripts) == 1:
-                title, transcript = all_transcripts[0]
-                filename = f"{sanitize_filename(slugify(title))}.txt"
-                content = f"{title}\n\n{transcript}"
+        all_video_urls = []
+        for url in urls:
+            if is_channel_url(url):
+                channel_videos = get_video_urls_from_channel(url)
+                all_video_urls.extend(channel_videos)
             else:
-                filename = 'Multiple_Transcriptions.txt'
-                content = "\n\n".join([f"{title}\n\n{transcript}" for title, transcript in all_transcripts])
+                all_video_urls.append(url)
 
-            response = HttpResponse(content, content_type='text/plain')
-            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        if not all_video_urls:
+            return render(request, 'index.html', {'form': YouTubeURLForm(), 'error': 'Nenhum vídeo encontrado.'})
+
+        all_transcripts = ""
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_url = {executor.submit(fetch_and_append_transcript, url): url for url in all_video_urls}
+            for future in as_completed(future_to_url):
+                all_transcripts += future.result()
+
+        if all_transcripts:
+            response = HttpResponse(all_transcripts, content_type='text/plain')
+            response['Content-Disposition'] = 'attachment; filename="youtube_transcriptions.txt"'
             return response
         else:
-            form = YouTubeURLForm()
-            error_message = 'Nenhuma transcrição disponível para os vídeos fornecidos.' if valid_urls else 'Nenhuma URL válida encontrada.'
-            return render(request, 'index.html', {'form': form, 'error': error_message})
+            return render(request, 'index.html', {'form': YouTubeURLForm(), 'error': 'Nenhuma transcrição disponível para os vídeos fornecidos.'})
 
     else:
         form = YouTubeURLForm()
     
     return render(request, 'index.html', {'form': form})
 
-def test_view(request):
-    return HttpResponse("Test view working")
+
+## JSONL
+
+
+# import os
+# import requests
+# from bs4 import BeautifulSoup
+# import re
+# import json
+# import youtube_dl
+# from concurrent.futures import ThreadPoolExecutor, as_completed
+# from django.shortcuts import render
+# from django.http import HttpResponse, JsonResponse
+# from .forms import YouTubeURLForm
+# from django.views.decorators.csrf import csrf_exempt
+# import logging
+
+# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# logger = logging.getLogger(__name__)
+
+# def get_youtube_transcript_and_title(video_url):
+#     try:
+#         response = requests.get(video_url)
+#         if response.status_code != 200:
+#             logger.error(f"Falha ao acessar a página do vídeo. Status code: {response.status_code}")
+#             return None
+
+#         soup = BeautifulSoup(response.content, 'html.parser')
+#         title_element = soup.find("meta", property="og:title")
+#         title = title_element["content"] if title_element else "sem_titulo"
+
+#         script = soup.find("script", string=re.compile("ytInitialPlayerResponse"))
+#         if not script:
+#             logger.error("Não foi possível encontrar o script de dados iniciais.")
+#             return None
+
+#         json_text = re.search(r"ytInitialPlayerResponse\s*=\s*({.*?});", script.string)
+#         if not json_text:
+#             logger.error("Não foi possível extrair os dados JSON.")
+#             return None
+
+#         data = json.loads(json_text.group(1))
+#         captions = data.get('captions')
+#         if not captions:
+#             logger.error("Nenhuma transcrição disponível para este vídeo.")
+#             return None
+
+#         caption_tracks = captions['playerCaptionsTracklistRenderer']['captionTracks']
+#         transcript_url = caption_tracks[0]['baseUrl']
+
+#         transcript_response = requests.get(transcript_url)
+#         transcript_soup = BeautifulSoup(transcript_response.content, 'html.parser')
+#         transcript_segments = transcript_soup.find_all('text')
+#         full_transcript = ' '.join([segment.get_text() for segment in transcript_segments])
+        
+#         return {"theme": title, "content": full_transcript}
+
+#     except Exception as e:
+#         logger.error(f"Erro ao extrair a transcrição: {e}")
+#         return None
+
+# def get_video_urls_from_channel(channel_url):
+#     ydl_opts = {
+#         'quiet': True,
+#         'extract_flat': True,
+#         'skip_download': True
+#     }
+    
+#     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+#         result = ydl.extract_info(channel_url, download=False)
+#         if 'entries' in result:
+#             video_urls = [entry['url'] for entry in result['entries'] if 'url' in entry]
+#             video_urls = [f"https://www.youtube.com/watch?v={url.split('v=')[-1]}" if "youtube" not in url else url for url in video_urls]
+#             return video_urls
+#         else:
+#             return []
+
+# def fetch_transcript(url):
+#     return get_youtube_transcript_and_title(url)
+
+# def is_channel_url(url):
+#     return '/channel/' in url or '/@' in url or '/c/' in url or '/user/' in url
+
+# @csrf_exempt
+# def transcription_view(request):
+#     if request.method == 'POST':
+#         urls = request.POST.getlist('video_url')
+#         if not urls:
+#             return JsonResponse({'error': 'Nenhuma URL fornecida.'}, status=400)
+
+#         all_video_urls = []
+#         for url in urls:
+#             if is_channel_url(url):
+#                 channel_videos = get_video_urls_from_channel(url)
+#                 all_video_urls.extend(channel_videos)
+#             else:
+#                 all_video_urls.append(url)
+
+#         if not all_video_urls:
+#             return JsonResponse({'error': 'Nenhum vídeo encontrado.'}, status=404)
+
+#         dataset = []
+#         with ThreadPoolExecutor(max_workers=10) as executor:
+#             future_to_url = {executor.submit(fetch_transcript, url): url for url in all_video_urls}
+#             for future in as_completed(future_to_url):
+#                 result = future.result()
+#                 if result:
+#                     dataset.append(result)
+
+#         if dataset:
+#             response = HttpResponse(content_type='application/json')
+#             response['Content-Disposition'] = 'attachment; filename="youtube_transcriptions_dataset.jsonl"'
+            
+#             for item in dataset:
+#                 json.dump(item, response, ensure_ascii=False)
+#                 response.write('\n')
+            
+#             return response
+#         else:
+#             return JsonResponse({'error': 'Nenhuma transcrição disponível para os vídeos fornecidos.'}, status=404)
+
+#     else:
+#         form = YouTubeURLForm()
+    
+#     return render(request, 'index.html', {'form': form})
