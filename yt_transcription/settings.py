@@ -14,11 +14,11 @@ if not SECRET_KEY:
     raise ValueError("No SECRET_KEY set for Django application")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_ENV') != 'production'
+# DEBUG = os.environ.get('DJANGO_ENV') != 'production'
+DEBUG = False
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'yt-transcriptor.onrender.com']
-CSRF_TRUSTED_ORIGINS = ['https://yt-transcriptor.onrender.com']
-# Security settings
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
+CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://localhost').split()# Security settings
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
@@ -34,7 +34,7 @@ else:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = False
     SECURE_HSTS_PRELOAD = False
 
-CSRF_TRUSTED_ORIGINS = ['https://transcriptions-946edda3d774.herokuapp.com', 'https://texts.com.br']
+CSRF_TRUSTED_ORIGINS = ["*"]
 
 # Application definition
 INSTALLED_APPS = [
@@ -80,7 +80,7 @@ WSGI_APPLICATION = 'yt_transcription.wsgi.application'
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL', 'sqlite:///db.sqlite3'),
+        default='postgres://user:password@localhost:5432/dbname',
         conn_max_age=600
     )
 }
@@ -134,6 +134,8 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+GUNICORN_WORKERS = int(os.environ.get('GUNICORN_WORKERS', '3'))
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -144,10 +146,6 @@ LOGGING = {
     },
     'root': {
         'handlers': ['console'],
-        'level': 'WARNING',
-    },
-    'django.server': {
-        'handlers': ['console'],
-        'level': 'WARNING',
+        'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),
     },
 }

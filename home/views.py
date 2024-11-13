@@ -12,6 +12,10 @@ from django.http import HttpResponse
 from .forms import YouTubeURLForm
 from django.views.decorators.csrf import csrf_exempt
 import logging
+from urllib.parse import quote
+from django.http import FileResponse
+from django.conf import settings
+from django.utils.text import slugify
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -26,6 +30,19 @@ def get_youtube_transcript_and_title(video_url):
         soup = BeautifulSoup(response.content, 'html.parser')
         title_element = soup.find("meta", property="og:title")
         title = title_element["content"] if title_element else "sem_titulo"
+
+                # Extrair a data de envio
+        upload_date = None
+        date_span = soup.find("span", class_="style-scope yt-formatted-string bold", string=re.compile("Transmitido ao vivo em|Estreou em|Enviado em"))
+        if date_span:
+            upload_date = date_span.text.strip()
+        else:
+            # Tentar encontrar a data em um formato alternativo
+            script_data = soup.find("script", string=re.compile("dateText"))
+            if script_data:
+                date_match = re.search(r'"dateText":\s*{\s*"simpleText":\s*"([^"]+)"', script_data.string)
+                if date_match:
+                    upload_date = date_match.group(1)
 
         script = soup.find("script", string=re.compile("ytInitialPlayerResponse"))
         if not script:
@@ -49,13 +66,29 @@ def get_youtube_transcript_and_title(video_url):
         transcript_response = requests.get(transcript_url)
         transcript_soup = BeautifulSoup(transcript_response.content, 'html.parser')
         transcript_segments = transcript_soup.find_all('text')
-        full_transcript = ' '.join([segment.get_text() for segment in transcript_segments])
         
-        return full_transcript, title
+        full_transcript = []
+        for segment in transcript_segments:
+            timestamp = segment.get('start')
+            text = segment.get_text()
+            formatted_timestamp = format_timestamp(float(timestamp))
+            full_transcript.append(f"{formatted_timestamp} {text}")
+        
+        full_transcript = '\n'.join(full_transcript)
+        
+        return full_transcript, title, upload_date
 
     except Exception as e:
         logger.error(f"Erro ao extrair a transcrição: {e}")
-        return None, None
+        return None, None, None
+    
+def format_timestamp(seconds):
+    minutes, seconds = divmod(int(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    else:
+        return f"{minutes:02d}:{seconds:02d}"
 
 def get_video_urls_from_channel(channel_url):
     ydl_opts = {
@@ -74,16 +107,17 @@ def get_video_urls_from_channel(channel_url):
             return []
 
 def fetch_and_append_transcript(url):
-    transcript, title = get_youtube_transcript_and_title(url)
+    transcript, title, upload_date = get_youtube_transcript_and_title(url)
     if transcript:
-        return f"\n\nTítulo do Vídeo: {title}\n\n{transcript}"
+        return title, transcript, upload_date
     else:
         logger.warning(f"Transcrição não encontrada para o vídeo: {url}")
-        return ""
+        return None, None, None
 
 def is_channel_url(url):
     return '/channel/' in url or '/@' in url or '/c/' in url or '/user/' in url
 
+@csrf_exempt
 @csrf_exempt
 def transcription_view(request):
     if request.method == 'POST':
@@ -102,16 +136,44 @@ def transcription_view(request):
         if not all_video_urls:
             return render(request, 'index.html', {'form': YouTubeURLForm(), 'error': 'Nenhum vídeo encontrado.'})
 
-        all_transcripts = ""
+        transcripts = []
         with ThreadPoolExecutor(max_workers=10) as executor:
             future_to_url = {executor.submit(fetch_and_append_transcript, url): url for url in all_video_urls}
             for future in as_completed(future_to_url):
-                all_transcripts += future.result()
+                title, transcript, upload_date = future.result()
+                if title and transcript:
+                    transcripts.append((title, transcript, upload_date))
 
-        if all_transcripts:
-            response = HttpResponse(all_transcripts, content_type='text/plain')
-            response['Content-Disposition'] = 'attachment; filename="youtube_transcriptions.txt"'
-            return response
+        if transcripts:
+            temp_dir = os.path.join(settings.MEDIA_ROOT, 'temp_transcripts')
+            os.makedirs(temp_dir, exist_ok=True)
+
+            if len(transcripts) == 1:
+                # Se houver apenas uma transcrição, use o nome do vídeo
+                title, transcript, upload_date = transcripts[0]
+                safe_title = slugify(title)
+                file_name = f"{safe_title}.txt"
+                file_path = os.path.join(temp_dir, file_name)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(f"Título do Vídeo: {title}\n")
+                    if upload_date:
+                        f.write(f"Data de Envio: {upload_date}\n")
+                    f.write("\n")
+                    f.write(transcript)
+            else:
+                # Se houver múltiplas transcrições, use 'all_transcriptions.txt'
+                file_name = 'all_transcriptions.txt'
+                file_path = os.path.join(temp_dir, file_name)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    for title, transcript, upload_date in transcripts:
+                        f.write(f"Título do Vídeo: {title}\n")
+                        if upload_date:
+                            f.write(f"Data de Envio: {upload_date}\n")
+                        f.write("\n")
+                        f.write(transcript)
+                        f.write("\n\n" + "="*50 + "\n\n")  # Separador entre transcrições
+
+            return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=file_name)
         else:
             return render(request, 'index.html', {'form': YouTubeURLForm(), 'error': 'Nenhuma transcrição disponível para os vídeos fornecidos.'})
 
@@ -119,7 +181,6 @@ def transcription_view(request):
         form = YouTubeURLForm()
     
     return render(request, 'index.html', {'form': form})
-
 
 ## JSONL
 
